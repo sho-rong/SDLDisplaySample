@@ -9,7 +9,9 @@ import android.content.Context;
 import android.content.Intent;
 import android.os.Build;
 import android.os.IBinder;
+import android.speech.tts.TextToSpeech;
 import android.util.Log;
+import android.widget.EditText;
 
 import com.smartdevicelink.managers.CompletionListener;
 import com.smartdevicelink.managers.SdlManager;
@@ -21,14 +23,18 @@ import com.smartdevicelink.protocol.enums.FunctionID;
 import com.smartdevicelink.proxy.RPCNotification;
 import com.smartdevicelink.proxy.RPCResponse;
 import com.smartdevicelink.proxy.rpc.DisplayCapabilities;
+import com.smartdevicelink.proxy.rpc.GetVehicleData;
 import com.smartdevicelink.proxy.rpc.OnButtonEvent;
 import com.smartdevicelink.proxy.rpc.OnButtonPress;
 import com.smartdevicelink.proxy.rpc.OnHMIStatus;
+import com.smartdevicelink.proxy.rpc.OnVehicleData;
 import com.smartdevicelink.proxy.rpc.SetDisplayLayout;
 import com.smartdevicelink.proxy.rpc.SetDisplayLayoutResponse;
+import com.smartdevicelink.proxy.rpc.SubscribeVehicleData;
 import com.smartdevicelink.proxy.rpc.enums.AppHMIType;
 import com.smartdevicelink.proxy.rpc.enums.FileType;
 import com.smartdevicelink.proxy.rpc.enums.HMILevel;
+import com.smartdevicelink.proxy.rpc.enums.PRNDL;
 import com.smartdevicelink.proxy.rpc.enums.PredefinedLayout;
 import com.smartdevicelink.proxy.rpc.enums.SystemCapabilityType;
 import com.smartdevicelink.proxy.rpc.listeners.OnRPCNotificationListener;
@@ -40,6 +46,7 @@ import com.smartdevicelink.transport.TCPTransportConfig;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Vector;
 
 public class SdlService extends Service {
@@ -56,16 +63,24 @@ public class SdlService extends Service {
 	// TCP/IP transport config
 	// The default port is 12345
 	// The IP is of the machine that is running SDL Core
-	private static final int TCP_PORT = 12345;
-	private static final String DEV_MACHINE_IP_ADDRESS = "192.168.1.105";
+//	private static final int TCP_PORT = 12345;
+//
+////	private static final String DEV_MACHINE_IP_ADDRESS = "192.168.1.105";
+//	private static final String DEV_MACHINE_IP_ADDRESS = "10.0.0.1";
+
+	//to connect Manticore
+	private static final int TCP_PORT = 17094;
+	private static final String DEV_MACHINE_IP_ADDRESS = "m.sdl.tools";
 
 	// variable to create and call functions of the SyncProxy
 	private SdlManager sdlManager = null;
+
 
 	@Override
 	public IBinder onBind(Intent intent) {
 		return null;
 	}
+
 
 	@Override
 	public void onCreate() {
@@ -75,6 +90,7 @@ public class SdlService extends Service {
 		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
 			enterForeground();
 		}
+
 	}
 
 	// Helper method to let the service enter foreground mode
@@ -115,6 +131,7 @@ public class SdlService extends Service {
 
 	private void startProxy() {
 
+
 		if (sdlManager == null) {
 			Log.i(TAG, "Starting SDL Proxy");
 
@@ -144,6 +161,8 @@ public class SdlService extends Service {
 			appType.add(AppHMIType.MEDIA);
 
 
+
+
 			// The manager listener helps you know when certain events that pertain to the SDL Manager happen
 			// Here we will listen for ON_HMI_STATUS and ON_COMMAND notifications
 			SdlManagerListener listener = new SdlManagerListener() {
@@ -160,10 +179,49 @@ public class SdlService extends Service {
 								checkTemplateType();
 
 								setDisplayGraphicWithTextButtons();
+
+
+							}
+							SubscribeVehicleData subscribeRequest = new SubscribeVehicleData();
+							subscribeRequest.setSpeed(true);
+
+							subscribeRequest.setOnRPCResponseListener(new OnRPCResponseListener() {
+								@Override
+								public void onResponse(int correlationId, RPCResponse response) {
+									if (response.getSuccess()) {
+										Log.i("SdlService", "Successfully subscribed to vehicle data.");
+									}else {
+										Log.i("SdlService", "Request to subscribe to vehicle data was rejected.");
+									}
+								}
+							});
+
+							//add
+							sdlManager.sendRPC(subscribeRequest);
+
+						}
+
+					});
+
+					//これをすると定期的にデータが取得可能
+					sdlManager.addOnRPCNotificationListener(FunctionID.ON_VEHICLE_DATA, new OnRPCNotificationListener() {
+						@Override
+						public void onNotified(RPCNotification notification) {
+							OnVehicleData onVehicleDataNotification = (OnVehicleData) notification;
+
+							//0の場合は、俳句を詠む
+							Double speed = onVehicleDataNotification.getSpeed();
+							Log.d("Stopped","speed 0 detected");
+
+							if (speed == 0) {
+								MainActivity.speechText();
+								Log.d("Stopped","speed 0 detected");
 							}
 						}
 					});
+
 				}
+
 
 				@Override
 				public void onDestroy() {
@@ -175,6 +233,7 @@ public class SdlService extends Service {
 				}
 			};
 
+
 			// Create App Icon, this is set in the SdlManager builder
 			SdlArtwork appIcon = new SdlArtwork(ICON_FILENAME, FileType.GRAPHIC_PNG, R.mipmap.ic_launcher, true);
 
@@ -185,6 +244,7 @@ public class SdlService extends Service {
 			builder.setAppIcon(appIcon);
 			sdlManager = builder.build();
 			sdlManager.start();
+
 
 
 		}
@@ -204,6 +264,8 @@ public class SdlService extends Service {
 		}
 	}
 
+
+
 	/**
 	 * GRAPHIC_WITH_TEXTBUTTONSテンプレートのサンプル
 	 */
@@ -211,7 +273,7 @@ public class SdlService extends Service {
 		SetDisplayLayout setDisplayLayoutRequest = new SetDisplayLayout();
 
 		//GRAPHIC_WITH_TEXT_AND_SOFTBUTTONS
-		setDisplayLayoutRequest.setDisplayLayout(PredefinedLayout.GRAPHIC_WITH_TEXTBUTTONS.toString());
+		setDisplayLayoutRequest.setDisplayLayout(PredefinedLayout.GRAPHIC_WITH_TEXT.toString());
 		setDisplayLayoutRequest.setOnRPCResponseListener(new OnRPCResponseListener() {
 			@Override
 			public void onResponse(int correlationId, RPCResponse response) {
@@ -221,10 +283,10 @@ public class SdlService extends Service {
 					sdlManager.getScreenManager().beginTransaction();
 
 					//テキストを登録する場合
-					//sdlManager.getScreenManager().setTextField1("Hello, this is MainField1.");
+					sdlManager.getScreenManager().setTextField1("眠気が来ているのは気の所為ではありません,一度休憩してはいかがですか");
 
 					//画像を登録する
-					SdlArtwork artwork = new SdlArtwork("sample01.png", FileType.GRAPHIC_PNG, R.drawable.sample01, true);
+					SdlArtwork artwork = new SdlArtwork("aaa.png", FileType.GRAPHIC_PNG, R.drawable.aaa, true);
 
 					sdlManager.getScreenManager().setPrimaryGraphic(artwork);
 					sdlManager.getScreenManager().commit(new CompletionListener() {
@@ -232,63 +294,65 @@ public class SdlService extends Service {
 						public void onComplete(boolean success) {
 							if (success) {
 								Log.i(TAG, "welcome show successful");
+							}else{
+								Log.i(TAG,"failed");
 							}
 						}
 					});
 
 					//ボタンの設定
-					SoftButtonState softButton01State1 = new SoftButtonState("button01_state1", "button01_state1", null);
+//					SoftButtonState softButton01State1 = new SoftButtonState("button01_state1", "button01_state1", null);
+//
+//					SdlArtwork state_artwork = new SdlArtwork("state2.png", FileType.GRAPHIC_PNG, R.drawable.ic_sdl, true);
+//					SoftButtonState softButton01State2 = new SoftButtonState("button01_state2", "button01_state2", state_artwork);
+//
+//					List<SoftButtonState> softButtonStates = Arrays.asList(softButton01State1, softButton01State2);
+//
+//					SoftButtonObject softButtonObject1 = new SoftButtonObject("softButtonObject01", softButtonStates, softButton01State1.getName(), null);
+//
+//					softButtonObject1.setOnEventListener(new SoftButtonObject.OnEventListener() {
+//						@Override
+//						public void onPress(SoftButtonObject softButtonObject, OnButtonPress onButtonPress) {
+//							softButtonObject.transitionToNextState();
+//						}
+//
+//						@Override
+//						public void onEvent(SoftButtonObject softButtonObject, OnButtonEvent onButtonEvent) {
+//
+//						}
+//					});
+//
+//					SoftButtonState softButton02State1 = new SoftButtonState("button02_state1", "button02_state1", null);
+//
+//					SoftButtonObject softButtonObject2 = new SoftButtonObject("softButtonObject02",  Collections.singletonList(softButton02State1), softButton02State1.getName(), null);
+//					softButtonObject2.setOnEventListener(new SoftButtonObject.OnEventListener() {
+//						@Override
+//						public void onPress(SoftButtonObject softButtonObject, OnButtonPress onButtonPress) {
+//
+//							sdlManager.getScreenManager().beginTransaction();
+//
+//							//画像を登録する
+//							SdlArtwork artwork = new SdlArtwork("sample02.png", FileType.GRAPHIC_PNG, R.drawable.sample02, true);
+//							sdlManager.getScreenManager().setPrimaryGraphic(artwork);
+//							sdlManager.getScreenManager().commit(new CompletionListener() {
+//								@Override
+//								public void onComplete(boolean success) {
+//									if (success) {
+//										Log.i(TAG, "welcome show successful");
+//									}
+//								}
+//							});
+//						}
+//
+//						@Override
+//						public void onEvent(SoftButtonObject softButtonObject, OnButtonEvent onButtonEvent) {
+//						}
+//					});
+//
+//					List<SoftButtonObject> buttons = Arrays.asList(softButtonObject1, softButtonObject2);
 
-					SdlArtwork state_artwork = new SdlArtwork("state2.png", FileType.GRAPHIC_PNG, R.drawable.ic_sdl, true);
-					SoftButtonState softButton01State2 = new SoftButtonState("button01_state2", "button01_state2", state_artwork);
-
-					List<SoftButtonState> softButtonStates = Arrays.asList(softButton01State1, softButton01State2);
-
-					SoftButtonObject softButtonObject1 = new SoftButtonObject("softButtonObject01", softButtonStates, softButton01State1.getName(), null);
-
-					softButtonObject1.setOnEventListener(new SoftButtonObject.OnEventListener() {
-						@Override
-						public void onPress(SoftButtonObject softButtonObject, OnButtonPress onButtonPress) {
-							softButtonObject.transitionToNextState();
-						}
-
-						@Override
-						public void onEvent(SoftButtonObject softButtonObject, OnButtonEvent onButtonEvent) {
-
-						}
-					});
-
-					SoftButtonState softButton02State1 = new SoftButtonState("button02_state1", "button02_state1", null);
-
-					SoftButtonObject softButtonObject2 = new SoftButtonObject("softButtonObject02",  Collections.singletonList(softButton02State1), softButton02State1.getName(), null);
-					softButtonObject2.setOnEventListener(new SoftButtonObject.OnEventListener() {
-						@Override
-						public void onPress(SoftButtonObject softButtonObject, OnButtonPress onButtonPress) {
-
-							sdlManager.getScreenManager().beginTransaction();
-
-							//画像を登録する
-							SdlArtwork artwork = new SdlArtwork("sample02.png", FileType.GRAPHIC_PNG, R.drawable.sample02, true);
-							sdlManager.getScreenManager().setPrimaryGraphic(artwork);
-							sdlManager.getScreenManager().commit(new CompletionListener() {
-								@Override
-								public void onComplete(boolean success) {
-									if (success) {
-										Log.i(TAG, "welcome show successful");
-									}
-								}
-							});
-						}
-
-						@Override
-						public void onEvent(SoftButtonObject softButtonObject, OnButtonEvent onButtonEvent) {
-						}
-					});
-
-					List<SoftButtonObject> buttons = Arrays.asList(softButtonObject1, softButtonObject2);
-
-					//ボタンを登録する
-					sdlManager.getScreenManager().setSoftButtonObjects(buttons);
+//					//ボタンを登録する
+//					sdlManager.getScreenManager().setSoftButtonObjects(buttons);
 
 				}else{
 					Log.i("SdlService", "Display layout request rejected.");
